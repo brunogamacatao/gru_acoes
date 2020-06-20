@@ -134,9 +134,14 @@ if __name__ == '__main__':
     treina(5000)
   else:
     print('Já existe uma rede treinada.')
-  
-  previsoes = faz_previsao(60)
-  print('len(previsoes)', len(previsoes))
+
+  dias_previsao = 60
+  try:
+    dias_previsao = int(input('Deseja prever quantos dias ? (60) '))
+  except:
+    pass # assume o valor default
+
+  previsoes = faz_previsao(dias_previsao)
 
   # Vamos calcular o eixo X das previsões
   x_inicio = len(data_series) - len(previsoes)#len(data_series) - 2 * TRAIN_WINDOW
