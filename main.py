@@ -9,6 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 ARQUIVO_REDE = './state_dict.pt'
 TRAIN_WINDOW = 30 # janela de treinamento
+STATEFUL = True
 
 # carrega os dados completos
 pbr = pd.read_csv('PBR.csv')
@@ -18,7 +19,7 @@ all_data = data_series.values.astype(float)
 
 # dividir os dados em treino e teste
 
-train_data = all_data[:-TRAIN_WINDOW]
+train_data = all_data[:]
 test_data  = all_data[-TRAIN_WINDOW:]
 
 # Normalização dos dados (deixar entre -1 e 1)
@@ -76,12 +77,16 @@ def treina(epochs = 100):
   total_loss = 0
 
   for i in range(epochs):
+    model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size))
+
     total_loss = 0
     for seq, labels in train_inout_seq:
       optimizer.zero_grad()
 
-      # Reutiliza o estado interno do passo anterior
-      model.hidden_cell = (model.hidden_cell.detach())
+      if STATEFUL:
+        model.hidden_cell = (model.hidden_cell.detach())
+      else:
+        model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size))
 
       y_pred = model(seq)
 
@@ -100,35 +105,42 @@ def treina(epochs = 100):
 
 def faz_previsao(qtd_previsoes = TRAIN_WINDOW):
   # pega os últimos valores do conjunto de treinamento
-  test_inputs = train_data_normalized[-TRAIN_WINDOW:].tolist()
+  test_inputs = train_data_normalized[-(TRAIN_WINDOW + qtd_previsoes): -qtd_previsoes].tolist()
 
   # carrega o melhor modelo salvo
   model.load_state_dict(torch.load(ARQUIVO_REDE))
   model.eval() # coloca a rede no modo de avaliação
 
+  model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size))
+
   # Nós não modificamos o estado oculto porque nossa rede é statefull
   for i in range(qtd_previsoes):
+    if STATEFUL:
+      model.hidden_cell = (model.hidden_cell.detach())
+    else:
+      model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size))
+    
     seq = torch.FloatTensor(test_inputs[-TRAIN_WINDOW:]) # usamos como entrada os 12 últimos valores
-    with torch.no_grad(): # desligamos os gradientes da rede (necessário para o gerenciamento do estado escondido)
-      test_inputs.append(model(seq).item()) # adiciona a saída ao final do conjunto de entrada  
+    test_inputs.append(model(seq).item()) # adiciona a saída ao final do conjunto de entrada  
 
   # A saída precisa ser escalada de volta
-  actual_predictions = scaler.inverse_transform(np.array(test_inputs[qtd_previsoes:]).reshape(-1, 1))
-  return actual_predictions
+  actual_predictions = scaler.inverse_transform(np.array(test_inputs).reshape(-1, 1))
+  return actual_predictions[-qtd_previsoes:]
 
 if __name__ == '__main__':
   print('Verificando se a rede já está treinada ...')
   if not os.path.exists(ARQUIVO_REDE):
     print('Não foi encontrado um arquivo da rede. Treinando ...')
-    treina()
+    treina(5000)
   else:
     print('Já existe uma rede treinada.')
   
-  previsoes = faz_previsao(30)
+  previsoes = faz_previsao(60)
+  print('len(previsoes)', len(previsoes))
 
   # Vamos calcular o eixo X das previsões
-  x_inicio = len(data_series) - len(previsoes)
-  x_fim    = len(data_series)
+  x_inicio = len(data_series) - len(previsoes)#len(data_series) - 2 * TRAIN_WINDOW
+  x_fim    = x_inicio + len(previsoes)
   x = list(range(x_inicio, x_fim, 1))
 
   plt.figure(figsize=(15, 5)) # aumenta o tamanho do plot
